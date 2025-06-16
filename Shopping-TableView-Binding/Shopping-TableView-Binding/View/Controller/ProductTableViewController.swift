@@ -8,43 +8,41 @@
 import UIKit
 import Combine
 
-// MARK: - Controller
+// MARK: - View(Controller)
+//  MVVM의 모든 입력(input)은 View가 담당하며, Controler까지 View로 취급
 
 final class ProductTableViewController: UITableViewController {
 
-    //  Controller(UIViewController)는 Model에 대한 데이터를 갖고 있으면서,
-    private let products = Product.collection
+    private var numberOfItemsInCart = 0
+    private var totalCost = 0
+    private var likedProductIds: Set<Int> = []
+    private var productQuantities: [Int: Int] = [:]
     
-    //  Model의 상태(데이터)가 변경되면 방출/구독을 통해 이를 감지
-    //  -> View(UIView)에 변경 사항을 반영하기 위함
-    @Published private var cart: [Product: Int] = [:]
-    @Published private var likes: [Product: Bool] = [:]
+    //  UIKit+Combine에서는 자동으로 UI와 바인딩하는 기능이 없어, Model을 가지고 있어야함
+    private var products: [Product] = []
     
-    private var numberOfItemsInCart: Int {
-        return cart.reduce(0) { partialResult, dict in
-            partialResult + dict.value
-        }
-    }
+    private let viewModel = ViewModel()
     
-    private var totalCost: Int {
-        return cart.reduce(0) { partialResult, dict in
-            partialResult + (dict.key.price * dict.value)
-        }
-    }
+    //  ViewModel에게 입력을 알리기 위한 역할
+    private let output = PassthroughSubject<ViewModel.Input, Never>()
     
-    //  Controller의 구독을 저장하고 관리하기 위한 역할
+    //  View(Controller)의 구독을 저장하고 관리하기 위한 역할
     private var cancellables = Set<AnyCancellable>()
     
     override func viewDidLoad() {
         super.viewDidLoad()
         // Do any additional setup after loading the view.
+        
         setupViews()
-        observe()
+        bindUI()
+        
+        //  ViewModel에게 input 상태를 알림
+        //  🗣️: "ViewModel님! Input Event가 들어왔습니다."
+        output.send(.viewDidLoad)
     }
     
     @objc func resetButtonTapped() {
-        cart.removeAll()
-        likes.removeAll()
+        output.send(.onResetButtonTap)
     }
 
 
@@ -64,41 +62,22 @@ extension ProductTableViewController {
         navigationItem.rightBarButtonItem = UIBarButtonItem(barButtonSystemItem: .refresh, target: self, action: #selector(resetButtonTapped))
     }
     
-    //  Model의 데이터 감지
-    private func observe() {
-        //  구독을 통해 데이터를 감지하고
-        $cart.dropFirst()
-            .sink { [unowned self] dict in  //  [unowned self]: self는 nil일 수 없다.
-                dict.forEach { key, value in
-                    print("\(key.name) - \(value)")
+    //  UI 바인딩
+    private func bindUI() {
+        viewModel.transform(inputEvent: output.eraseToAnyPublisher())
+            .sink { [unowned self] outputEvent in
+                switch outputEvent {
+                case .setProducts(let products):
+                    self.products = products
+                case let .updateView(numberOfItemsInCart, totalCost, likedProductIds, productQuantities):
+                    self.numberOfItemsInCart = numberOfItemsInCart
+                    self.totalCost = totalCost
+                    self.likedProductIds = likedProductIds
+                    self.productQuantities = productQuantities
+                    
+                    self.tableView.reloadData()
                 }
-                print("==================================================")
-                //  데이터 변경사항이 발생 후, View를 갱신
-                tableView.reloadData()
             }.store(in: &self.cancellables)
-        
-        $likes.dropFirst()
-            .sink { [unowned self] dict in
-                let productNames = dict
-                    .filter { $0.value == true }
-                    .map { $0.key.name }
-                print("❤️ \(products)")
-                tableView.reloadData()
-            }.store(in: &self.cancellables)
-    }
-    
-    //  Cell에서 전달된 이벤트에 따라 수량 또는 좋아요 상태 갱신
-    func handleCellEvent(product: Product, indexPath: IndexPath, event: ProductTableViewCellEvent) {
-        switch event {
-        case .quantityDidChange(let value):
-            cart[product] = value
-        case .heartDidTapped:
-            if let value = likes[product] {
-                likes[product] = !value
-            } else {
-                likes[product] = true
-            }
-        }
     }
 }
 
@@ -113,14 +92,13 @@ extension ProductTableViewController {
         let product = products[indexPath.row]
         
         cell.setProduct(product: product,
-                        quantity: cart[product] ?? 0,
-                        isLiked: likes[product] ?? false)
-        cell.eventReceiver
-            .sink { [weak self] cellEvent in    //  [weak self]: self는 nil일 수도 있다.
-            self?.handleCellEvent(product: product, indexPath: indexPath, event: cellEvent)
-        }
-        .store(in: &cell.cancellables)  //  Cell별로 구독 관리, 재사용에 유리
-        //  .store(in: &cancellables)     //  뷰컨트롤러 전체에서 유지 (재사용 문제 발생 가능)
+                        quantity: productQuantities[product.id] ?? 0,
+                        isLiked: likedProductIds.contains(product.id))
+        
+        cell.eventReceiver.sink { [weak self] event in  //  [weak self]: self는 nil일 수도 있다.
+            self?.output.send(.onProductCellEvent(cellEvent: event, product: product))
+        }.store(in: &cell.cancellables)
+        
         return cell
     }
     
@@ -140,11 +118,11 @@ extension ProductTableViewController {
     }
 }
 
-//#if DEBUG
-//import SwiftUI
-//
-//#Preview(body: {
-//    UINavigationController(rootViewController: ProductTableViewController())
-//})
-//#endif
+#if DEBUG
+import SwiftUI
+
+#Preview(body: {
+    UINavigationController(rootViewController: ProductTableViewController())
+})
+#endif
 
