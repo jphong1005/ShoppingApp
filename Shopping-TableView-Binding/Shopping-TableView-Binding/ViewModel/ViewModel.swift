@@ -108,6 +108,10 @@ final class ViewModel {
             case .onResetButtonTap:
                 cart.removeAll()
                 likes.removeAll()
+                output.send(.updateView(numberOfItemsInCart: numberOfItemsInCart,
+                                        totalCost: totalCost,
+                                        likedProductIds: likedProductIds,
+                                        productQuantities: productQuantities))
             }
         }.store(in: &self.cancellables)
         

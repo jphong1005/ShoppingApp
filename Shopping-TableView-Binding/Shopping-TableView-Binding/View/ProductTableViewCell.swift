@@ -12,7 +12,7 @@ import Combine
 //  Cell 내부에서 발생하는 이벤트를 외부(ViewController)로 전달하기 위한 그룹핑
 enum ProductTableViewCellEvent {
     case quantityDidChange(value: Int)  //  수량 변경 이벤트
-    case heartDidTap                 //  좋아요 버튼 클릭 이벤트
+    case heartDidTap                    //  좋아요 버튼 클릭 이벤트
 }
 
 // MARK: - View
